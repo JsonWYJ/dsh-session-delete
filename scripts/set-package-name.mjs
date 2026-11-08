@@ -1,11 +1,14 @@
 /**
  * Rename the package everywhere it is spelled out.
  *
- * A DSH bundle name appears in four places that must agree, or the install,
+ * A DSH bundle name appears in five places that must agree, or the install,
  * the Loader entry, and the market index stop pointing at the same package:
  *
  *   package.json      `name`
  *   cordis.patch.yml  the insert row's `name` (the `id` stays stable)
+ *   client/client.js  the `PACKAGE_ID` the bundle registers with the client
+ *                     module system (it must equal the package name, or the
+ *                     Web boot row fails and the GUI never paints)
  *   README.md         install commands and prose
  *   docs/PUBLISH.md   examples
  *
@@ -54,6 +57,17 @@ if (patched === patch) console.warn('cordis.patch.yml   name row not found; chec
 else {
   await writeFile(patchPath, patched);
   console.log(`cordis.patch.yml    name row -> ${patchName}`);
+}
+
+// The client bundle registers itself under the package name; the client module
+// system keys boot rows by package name, so a stale id fails the whole Web boot.
+const clientPath = join(root, 'client', 'client.js');
+const client = await readFile(clientPath, 'utf8');
+const clientRewritten = client.replace(/(^var dshSessionDeleteId = ')(?:[^'\\]|\\.)*(?=';)/mu, (_, head) => `${head}${next}`);
+if (clientRewritten === client) console.warn('client/client.js     dshSessionDeleteId not found; check it by hand');
+else {
+  await writeFile(clientPath, clientRewritten);
+  console.log(`client/client.js     dshSessionDeleteId -> ${next}`);
 }
 
 for (const file of ['README.md', join('docs', 'PUBLISH.md')]) {

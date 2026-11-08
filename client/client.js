@@ -20,6 +20,26 @@
  */
 
 /**
+ * The id this bundle must register under: the package's own name.
+ *
+ * `dsh-client-modules` keys every boot-graph row by the package name it was
+ * composed from (`graphRow(packageName, ...)`), then after loading the script
+ * it asserts `factories.has(packageName)`. Registering any other id therefore
+ * fails the row with `loaded without registering "<package>" via
+ * __ModuleLoader__.load`, and the Web shell paints "Failed to load plugins"
+ * instead of the application. This constant must equal `package.json` `name`;
+ * `scripts/set-package-name.mjs` rewrites it on a rename and
+ * `test/client.test.mjs` asserts it, because a rename that leaves it stale
+ * takes the whole GUI down rather than one menu row.
+ *
+ * It is a `var` on purpose: a classic script that the Host executes twice
+ * shares one global lexical scope, so a top-level `const` would throw
+ * "Identifier has already been declared" on the second execution and take the
+ * page down — the very failure this bundle is written to survive.
+ */
+var dshSessionDeleteId = '@jsonwyj/dsh-session-delete';
+
+/**
  * Register this bundle without letting registration abort the Host's boot.
  *
  * The client module system throws when one id is registered twice, and that
@@ -43,13 +63,28 @@ function loadBundle(entry) {
 }
 
 loadBundle({
-	id: 'dsh-session-delete',
+	id: dshSessionDeleteId,
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
 
-		const React = require('react');
+		/**
+		 * React as the Host's module table serves it. A factory that throws while
+		 * materializing fails its boot row, so a missing seed word must degrade to
+		 * "no glyph" instead of taking the Web shell down with it.
+		 */
+		let React = null;
+		try {
+			React = require('react') ?? null;
+		} catch {
+			React = null;
+		}
+		/** `React.createElement`, or a plain descriptor when React is unavailable. */
+		function h(type, props, ...children) {
+			if (React === null) return { type, props: props ?? {}, children };
+			return React.createElement(type, props, ...children);
+		}
 		/** Shared primitives; optional so a Host without them still renders plain buttons. */
 		let P = {};
 		try {
@@ -297,9 +332,9 @@ loadBundle({
 				openDialog({ sessionId, displayTitle });
 			};
 			if (hasUI('MenuItemButton')) {
-				return React.createElement(P.MenuItemButton, { separatorBefore: true, onSelect: onClick }, translate('menu.delete'));
+				return h(P.MenuItemButton, { separatorBefore: true, onSelect: onClick }, translate('menu.delete'));
 			}
-			return React.createElement('button', {
+			return h('button', {
 				type: 'button',
 				role: 'menuitem',
 				className: 'dshsd-btn',
@@ -365,7 +400,7 @@ loadBundle({
 		 * visible regression, and a 16px inline SVG costs nothing.
 		 */
 		function TrashGlyph() {
-			return React.createElement('svg', {
+			return h('svg', {
 				viewBox: '0 0 20 20',
 				width: 16,
 				height: 16,
@@ -375,7 +410,7 @@ loadBundle({
 				strokeLinecap: 'round',
 				strokeLinejoin: 'round',
 				'aria-hidden': true,
-			}, React.createElement('path', { d: 'M4.5 6.5h11' }), React.createElement('path', { d: 'M8 6.5V5.2h4v1.3' }), React.createElement('path', { d: 'M6.2 6.5l.6 8.3h6.4l.6-8.3' }), React.createElement('path', { d: 'M8.6 9.2v3.4M11.4 9.2v3.4' }));
+			}, h('path', { d: 'M4.5 6.5h11' }), h('path', { d: 'M8 6.5V5.2h4v1.3' }), h('path', { d: 'M6.2 6.5l.6 8.3h6.4l.6-8.3' }), h('path', { d: 'M8.6 9.2v3.4M11.4 9.2v3.4' }));
 		}
 
 		/** Run one wiring step; a failure is reported, never fatal. */

@@ -13,6 +13,14 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const BUNDLE = fileURLToPath(new URL('../client/client.js', import.meta.url));
+const MANIFEST = fileURLToPath(new URL('../package.json', import.meta.url));
+
+/**
+ * The id the Host composes this row under, which is the package name
+ * (`graphRow(packageName, ...)`); a mismatch fails the whole Web boot with
+ * "loaded without registering".
+ */
+const PACKAGE_NAME = JSON.parse(await readFile(MANIFEST, 'utf8')).name;
 
 /** Minimal React stand-in: only createElement is used by the fallback row. */
 const reactStub = {
@@ -170,7 +178,7 @@ const test = (name, run) => tests.push([name, run]);
 
 test('the bundle registers under its package name', async () => {
   const entry = await loadBundle();
-  assert.equal(entry.id, 'dsh-session-delete');
+  assert.equal(entry.id, PACKAGE_NAME, 'the id must equal package.json name, or the boot row never finds its factory');
   assert.equal(typeof entry.factory, 'function');
 });
 
@@ -306,6 +314,23 @@ test('the row keeps a glyph when the shared primitives ship no trash icon', asyn
   assert.equal(glyph[2]().type, 'svg', 'the bundled SVG stands in for the shared icon');
 });
 
+test('a Host that does not serve react still materializes the bundle', async () => {
+  // The module table's `require` throws for a spec it cannot serve, and a
+  // factory that throws fails its boot row: the glyph and the legacy row must
+  // therefore tolerate a missing seed word.
+  const entry = await loadBundle();
+  const exports = entry.factory((id) => {
+    if (id === 'react') throw new Error('client-modules: require("react") missed the module table');
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return {};
+    throw new Error(`unexpected require: ${id}`);
+  });
+  const { ctx, registrations } = makeContext({ withMenus: true });
+  assert.doesNotThrow(() => exports.apply(ctx));
+  const glyph = registrations.find(([kind, cfg]) => kind === 'slot' && cfg && cfg.key === 'session-delete.delete');
+  assert.ok(glyph, 'the glyph registered without React');
+  assert.equal(glyph[2]().type, 'svg', 'the descriptor still describes the svg');
+});
+
 test('a service returning its own Disposable never loses the registration', async () => {
   const entry = await loadBundle();
   const exports = entry.factory(requireStub);
@@ -385,7 +410,7 @@ test('a bundle the Host executes twice never aborts the web boot', async () => {
   assert.doesNotThrow(() => vm.runInContext(source, sandbox, { filename: 'client.js' }), 'the second execution stays quiet');
   assert.equal(registered.size, 1, 'one factory serves the id');
   assert.equal(warnings.length, 1, 'the refused duplicate is reported once');
-  assert.ok(registered.get('dsh-session-delete'), 'the id the Host expects is the one registered');
+  assert.ok(registered.get(PACKAGE_NAME), 'the id the Host expects is the one registered');
 });
 
 let failed = 0;

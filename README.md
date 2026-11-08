@@ -52,6 +52,10 @@ node test/host.test.mjs
 node test/client.test.mjs
 ```
 
+### 一条不能破的约定：注册 id = 包名
+
+浏览器半边用 `window.__ModuleLoader__.load({ id, factory })` 注册，这个 `id` **必须等于 `package.json` 的 `name`**。`dsh-client-modules` 按包名生成启动图里的行（`graphRow(packageName, …)`），脚本加载完就断言 `factories.has(packageName)`；对不上时整行报 `loaded without registering "<包名>"`，Web 界面直接停在「Failed to load plugins」，不是少一个菜单项，而是整个界面起不来。所以改包名（`scripts/set-package-name.mjs`）必须同时改 `client/client.js` 顶部的 `dshSessionDeleteId`，`test/client.test.mjs` 会拿 `package.json` 校验它。另外这个变量刻意用 `var`：同一个脚本被执行两次时，顶层 `const` 会抛「Identifier has already been declared」，同样能把页面搞挂。
+
 ## 发版
 
 全程不碰 npm：改完 `package.json` 的 `version`，推一个 tag 就够了。
