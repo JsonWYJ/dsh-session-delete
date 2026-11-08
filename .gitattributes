@@ -1,0 +1,2 @@
+# 统一 LF：发版流水线里的 shell 片段在 CRLF 下会直接失败。
+* text=auto eol=lf
