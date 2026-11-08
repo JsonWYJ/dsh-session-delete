@@ -19,7 +19,30 @@
  * @module dsh-session-delete/client
  */
 
-window.__ModuleLoader__.load({
+/**
+ * Register this bundle without letting registration abort the Host's boot.
+ *
+ * The client module system throws when one id is registered twice, and that
+ * throw happens at module scope — DSH treats the whole page load as failed and
+ * the window never becomes usable. A Host can hand the same bundle to the page
+ * twice (a stale combo entry plus a freshly computed one), which is exactly how
+ * a menu plugin took the app down once. One factory serves every consumer of
+ * the id, so a refused duplicate is reported and swallowed: a missing menu row
+ * is recoverable, a blank window is not.
+ *
+ * @param entry - the `{ id, factory }` registration.
+ */
+function loadBundle(entry) {
+	try {
+		window.__ModuleLoader__.load(entry);
+	} catch (error) {
+		if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+			console.warn('[dsh-session-delete] bundle registration was refused (duplicate?):', error);
+		}
+	}
+}
+
+loadBundle({
 	id: 'dsh-session-delete',
 	factory: (require) => {
 		var module = { exports: {} };

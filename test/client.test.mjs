@@ -345,6 +345,49 @@ test('both locale dictionaries cover the same keys', async () => {
   assert.deepEqual(Object.keys(zh).sort(), Object.keys(en).sort());
 });
 
+test('a bundle the Host executes twice never aborts the web boot', async () => {
+  // The client module system refuses a second factory under a taken id, and a
+  // throw from module scope fails the whole page load: the window stays blank
+  // and DSH reports "web boot: 1 entry did not activate". Run the bundle twice
+  // against a loader that enforces that rule.
+  const registered = new Map();
+  const warnings = [];
+  const window = {
+    __ModuleLoader__: {
+      load: (entry) => {
+        if (registered.has(entry.id)) {
+          throw new Error(
+            `client-modules: duplicate factory registration for "${entry.id}" (bundle executed twice without invalidate?)`,
+          );
+        }
+        registered.set(entry.id, entry);
+      },
+    },
+  };
+  const sandbox = {
+    window,
+    document: makeDocument(),
+    console: { error() {}, log() {}, warn: (...args) => warnings.push(args) },
+    navigator: { language: 'zh-CN' },
+    setTimeout,
+    Symbol,
+    Object,
+    Array,
+    String,
+    Error,
+    Promise,
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  const source = await readFile(BUNDLE, 'utf8');
+
+  assert.doesNotThrow(() => vm.runInContext(source, sandbox, { filename: 'client.js' }), 'the first execution registers');
+  assert.doesNotThrow(() => vm.runInContext(source, sandbox, { filename: 'client.js' }), 'the second execution stays quiet');
+  assert.equal(registered.size, 1, 'one factory serves the id');
+  assert.equal(warnings.length, 1, 'the refused duplicate is reported once');
+  assert.ok(registered.get('dsh-session-delete'), 'the id the Host expects is the one registered');
+});
+
 let failed = 0;
 for (const [name, run] of tests) {
   try {
