@@ -1,0 +1,12 @@
+{
+  "menu.delete": "删除会话…",
+  "dialog.title": "永久删除这个会话？",
+  "dialog.desc": "「{title}」会从侧栏移除，对话记录移动到本地回收目录，需要时可以手动恢复。",
+  "dialog.descBlank": "这个空白会话会从侧栏移除，对话记录移动到本地回收目录。",
+  "dialog.cancel": "取消",
+  "dialog.confirm": "删除",
+  "dialog.pending": "正在删除…",
+  "error.busy": "这个会话的文件正被占用（可能正在使用），请先切到其他会话或重启 DSH 后再删除。",
+  "error.invalid": "会话标识无效。",
+  "error.failed": "删除失败：{detail}"
+}

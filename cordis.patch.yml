@@ -1,0 +1,16 @@
+# dsh-session-delete — a real Delete action for workspace conversations
+#
+# One row: the host half. It answers the browser half's Typert Remote calls
+# (`sessionDelete/delete`) by moving the Session's durable files into
+# <DSH_HOME>/sessions-trash and dropping the id from the Workspace registry,
+# so a conversation leaves the sidebar for good instead of only being archived.
+#
+#   - id: session-delete
+#     name: '@jsonwyj/dsh-session-delete'
+#
+# Removing this bundle leaves already-trashed Sessions in the trash directory;
+# restore a folder by hand if you ever need one back.
+
+- insert:
+    - id: session-delete
+      name: '@jsonwyj/dsh-session-delete'

@@ -1,0 +1,56 @@
+{
+  "name": "@jsonwyj/dsh-session-delete",
+  "version": "0.1.4",
+  "description": "Adds a real Delete action to DSH workspace conversations: moves the Session log out of the sidebar and into a local trash directory. · 给工作区对话加一个真正的「删除」动作（归档之外的硬删除），文件移动到本地回收目录，可手动恢复。",
+  "icon": "./icon.svg",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon.svg": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "author": "jsonwyj",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "cordis-plugin",
+    "bundle",
+    "session",
+    "delete"
+  ],
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-context-menu"
+      ],
+      "platform": "web"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

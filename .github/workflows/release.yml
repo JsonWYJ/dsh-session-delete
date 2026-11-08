@@ -1,0 +1,129 @@
+# 发版流水线：不碰 npm，全部走 GitHub。
+#
+# 推一个 tag 就完成三件事：
+#   1. 打出 .tgz 包，挂到 GitHub Release（给不想走市场的人直装）
+#   2. 用「本次 tag 指向的 commit」生成 market/index.json（format 1，git 源钉死 commit）
+#   3. 把 market/ 发布到 GitHub Pages，得到一份可以填进 DSH 的索引 URL
+#
+# 用法：git tag v0.1.5 && git push origin v0.1.5
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 读版本号并与 tag 对齐
+        id: meta
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "package version: $VERSION / tag: ${GITHUB_REF_NAME}"
+          case "${GITHUB_REF_NAME}" in
+            v*) [ "v$VERSION" = "${GITHUB_REF_NAME}" ] || { echo "tag 与 package.json 版本不一致"; exit 1; } ;;
+          esac
+
+      - name: 跑测试
+        run: |
+          node test/host.test.mjs
+          node test/client.test.mjs
+
+      - name: 打包 tgz
+        run: npm pack --pack-destination dist
+
+      - name: 生成 git 源的市场索引
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          node scripts/build-market-index.mjs \
+            --source git \
+            --git-url "$REPO_URL" \
+            --git-commit "${{ github.sha }}" \
+            --publish-time "$(date -u +%s)"
+
+      - name: 上传 Release 资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "$TAG" --generate-notes
+          gh release upload "$TAG" dist/*.tgz --clobber
+
+          ASSET="$(basename "$(ls dist/*.tgz | head -n1)")"
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## $TAG
+
+          **直装（不走市场）** —— 复制进对话让 agent 执行：
+
+          \`\`\`
+          plugin_manager install_bundle target=$REPO_URL/releases/download/$TAG/$ASSET
+          \`\`\`
+
+          装完需重启 DSH 才会挂上宿主半边。
+          EOF
+
+  pages:
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 生成索引（同 commit，供 Pages 托管）
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          node scripts/build-market-index.mjs \
+            --source git \
+            --git-url "$REPO_URL" \
+            --git-commit "${{ github.sha }}" \
+            --publish-time "$(date -u +%s)"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: market
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: 记录索引 URL
+        env:
+          PAGES_URL: ${{ steps.deploy.outputs.page_url }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          **市场索引 URL**（填进 DSH 设置里的 plugin-market indexes）：
+
+          \`\`\`
+          ${PAGES_URL}index.json
+          \`\`\`
+          EOF

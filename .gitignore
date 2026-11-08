@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tgz
+*.log
+.DS_Store
+Thumbs.db
+
+# 市场索引是构建产物：版本号、时间戳、git commit 都由构建时决定。
+# CI 在发版时重新生成并直接发布到 Pages，所以不把某次构建的结果提交进仓库。
+market/index.json

@@ -1,0 +1,12 @@
+{
+  "menu.delete": "Delete session…",
+  "dialog.title": "Delete this session for good?",
+  "dialog.desc": "\"{title}\" leaves the sidebar and its transcript moves to the local trash directory, which you can restore from by hand.",
+  "dialog.descBlank": "This blank session leaves the sidebar and its files move to the local trash directory.",
+  "dialog.cancel": "Cancel",
+  "dialog.confirm": "Delete",
+  "dialog.pending": "Deleting…",
+  "error.busy": "This session's files are in use. Switch to another session, or restart DSH, and try again.",
+  "error.invalid": "Invalid session id.",
+  "error.failed": "Delete failed: {detail}"
+}
