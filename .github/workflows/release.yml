@@ -51,7 +51,9 @@ jobs:
           node test/client.test.mjs
 
       - name: 打包 tgz
-        run: npm pack --pack-destination dist
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
 
       - name: 生成 git 源的市场索引
         env:
@@ -110,6 +112,9 @@ jobs:
             --publish-time "$(date -u +%s)"
 
       - uses: actions/configure-pages@v5
+        with:
+          # 仓库还没开 Pages 时，让这个 action 用 GITHUB_TOKEN 自动把 Pages 建起来（Source: GitHub Actions）。
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: market
