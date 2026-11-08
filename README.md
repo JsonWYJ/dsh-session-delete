@@ -71,10 +71,10 @@ CI 会跑测试、打出 tgz 挂到 Release、用该 commit 生成 git 源的市
 **从 GitHub 装（推荐）** —— 包挂在 Release 上，不需要 npm：
 
 ```text
-plugin_manager install_bundle target=https://github.com/<owner>/dsh-session-delete/releases/download/v<version>/jsonwyj-dsh-session-delete-<version>.tgz
+plugin_manager install_bundle target=https://github.com/JsonWYJ/dsh-session-delete/releases/download/v<version>/jsonwyj-dsh-session-delete-<version>.tgz
 ```
 
-或者加市场索引，让 Discover 自己更新：`https://<owner>.github.io/dsh-session-delete/index.json`。
+或者加市场索引，让 Discover 自己更新：`https://jsonwyj.github.io/dsh-session-delete/index.json`（仓库 Settings → Pages 里 Source 选 **GitHub Actions** 后由发版流水线自动维护）。
 
 **本地开发时**：
 
