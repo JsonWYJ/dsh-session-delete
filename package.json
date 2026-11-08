@@ -1,6 +1,6 @@
 {
   "name": "@jsonwyj/dsh-session-delete",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Adds a real Delete action to DSH workspace conversations: moves the Session log out of the sidebar and into a local trash directory. · 给工作区对话加一个真正的「删除」动作（归档之外的硬删除），文件移动到本地回收目录，可手动恢复。",
   "icon": "./icon.svg",
   "type": "module",

@@ -49,6 +49,7 @@ jobs:
         run: |
           node test/host.test.mjs
           node test/client.test.mjs
+          node test/identity.test.mjs
 
       - name: 打包 tgz
         run: |

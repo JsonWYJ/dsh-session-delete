@@ -42,6 +42,7 @@ DSH 自带的「归档」只是把会话从侧栏藏起来：文件、登记、�
 | `cordis.patch.yml` | bundle 的 loader 行：`- insert: [{ id: session-delete, name: '@jsonwyj/dsh-session-delete' }]`（`@` 开头必须加引号） |
 | `test/host.test.mjs` | 宿主逻辑测试，用临时 home 目录，不碰真实会话 |
 | `test/client.test.mjs` | 用 `vm` 按客户端的加载方式跑一遍浏览器半边，检查注册与文案 |
+| `test/identity.test.mjs` | 身份漂移守卫：注册 id、CSS 归属、宿主 `name`、bundle 的 `insert.name`、市场索引必须都等于 `package.json` 的 `name` |
 | `scripts/build-market-index.mjs` | 从 `package.json` 生成插件市场索引（format 1），支持 `npm` 与 `git` 两种源，并用 DSH 自带校验器验证 |
 | `market/icon.svg` | 市场图标（索引里相对引用，要和索引同目录托管） |
 | `.github/workflows/release.yml` | 推 tag 即发版：测试 → 打 tgz → GitHub Release → 生成 git 源索引 → 发 Pages |
@@ -50,11 +51,26 @@ DSH 自带的「归档」只是把会话从侧栏藏起来：文件、登记、�
 ```bash
 node test/host.test.mjs
 node test/client.test.mjs
+node test/identity.test.mjs
 ```
 
-### 一条不能破的约定：注册 id = 包名
+### 一条不能破的约定：身份标识 = 包名
 
-浏览器半边用 `window.__ModuleLoader__.load({ id, factory })` 注册，这个 `id` **必须等于 `package.json` 的 `name`**。`dsh-client-modules` 按包名生成启动图里的行（`graphRow(packageName, …)`），脚本加载完就断言 `factories.has(packageName)`；对不上时整行报 `loaded without registering "<包名>"`，Web 界面直接停在「Failed to load plugins」，不是少一个菜单项，而是整个界面起不来。所以改包名（`scripts/set-package-name.mjs`）必须同时改 `client/client.js` 顶部的 `dshSessionDeleteId`，`test/client.test.mjs` 会拿 `package.json` 校验它。另外这个变量刻意用 `var`：同一个脚本被执行两次时，顶层 `const` 会抛「Identifier has already been declared」，同样能把页面搞挂。
+包名不只是发布用的标签，DSH 有五个地方拿它当键：
+
+| 地方 | 处 |
+|---|---|
+| 客户端启动图的行 id | `graphRow(packageName, …)`；脚本加载后断言 `factories.has(packageName)`，对不上就 `loaded without registering "<包名>"` |
+| 浏览器半边的注册 | `window.__ModuleLoader__.load({ id, … })` 的 `id` |
+| 样式归属 | `<style data-plugin="<包名>">`；HMR 按这个属性认领/移除样式 |
+| 宿主半边的诊断名 | `lib/index.js` 的 `export const name` |
+| bundle 的 Loader 行 | `cordis.patch.yml` 里 `insert[].name` |
+
+任何一处对不上，轻则菜单消失、样式残留，重则整个 Web 界面停在「Failed to load plugins」——2026-11-08 就是这么白屏的。所以：
+
+- `scripts/set-package-name.mjs` 会同时改 `package.json`、`cordis.patch.yml`、`client/client.js` 的 `dshSessionDeleteId`、README/docs；
+- `test/identity.test.mjs` 把上面这些面全部对齐 `package.json` 的 `name`，改漏一处测试就红；
+- `dshSessionDeleteId` 刻意用 `var`：同一个脚本被执行两次时，顶层 `const` 会抛「Identifier has already been declared」，同样能把页面搞挂。
 
 ## 发版
 

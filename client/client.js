@@ -57,7 +57,7 @@ function loadBundle(entry) {
 		window.__ModuleLoader__.load(entry);
 	} catch (error) {
 		if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-			console.warn('[dsh-session-delete] bundle registration was refused (duplicate?):', error);
+			console.warn(`[${dshSessionDeleteId}] bundle registration was refused (duplicate?):`, error);
 		}
 	}
 }
@@ -189,18 +189,31 @@ loadBundle({
 			'.dshsd-btn-danger{border-color:transparent;background:var(--dsw-alias-state-error-primary,#d33);color:#fff}',
 		].join('');
 
-		const STYLE_ID = 'dsh-session-delete/dialog.css';
+		const STYLE_ID = `${dshSessionDeleteId}/dialog.css`;
+		/**
+		 * Put the dialog stylesheet in the page, owned by this package.
+		 *
+		 * `data-plugin` must be the package name: the client module system claims
+		 * styles created while a factory materializes (`claimStyles(ownerId, …)`)
+		 * and removes them by that same attribute on a hot reload
+		 * (`removeOwnedStyles(ownerId)`). Any other owner string leaves the tag
+		 * unclaimed, so a reload silently keeps the old copy — and the plugin's
+		 * own CSS inventory reports a package that does not exist.
+		 */
 		function installStyles() {
 			if (typeof document === 'undefined') return;
 			let tag = document.querySelector('style[data-plugin-css=' + JSON.stringify(STYLE_ID) + ']');
 			if (tag === null) {
 				tag = document.createElement('style');
-				tag.dataset.plugin = 'dsh-session-delete';
+				tag.dataset.plugin = dshSessionDeleteId;
 				tag.dataset.pluginCss = STYLE_ID;
 				document.head.appendChild(tag);
 			}
 			tag.textContent = CSS;
 		}
+		// Inject while the factory materializes so the loader records the tag as
+		// this package's style, not as a stray untagged one.
+		installStyles();
 
 		function el(tag, className, text) {
 			const node = document.createElement(tag);
@@ -224,7 +237,7 @@ loadBundle({
 		function report(label, error) {
 			const detail = error instanceof Error ? `${error.name}: ${error.message}\n${error.stack || ''}` : String(error);
 			try {
-				if (typeof console !== 'undefined' && typeof console.error === 'function') console.error('[dsh-session-delete]', label, error);
+				if (typeof console !== 'undefined' && typeof console.error === 'function') console.error(`[${dshSessionDeleteId}]`, label, error);
 			} catch (e) {
 				// console is best effort
 			}
@@ -449,7 +462,7 @@ loadBundle({
 					runEffect(ctx, () => {
 						registered = safe('locale-register', () => localeService.register(NS, MESSAGES));
 						return registered;
-					}, 'dsh-session-delete: dictionaries');
+					}, `${dshSessionDeleteId}: dictionaries`);
 				});
 				dictionaries = typeof registered === 'function' ? 'registered' : 'failed';
 			}
@@ -474,7 +487,7 @@ loadBundle({
 				if (Icon === undefined || Icon === null) Icon = TrashGlyph;
 				runEffect(ctx, () => safe('icon-register', () => slots.inject('contextMenu.icon', function* () {
 					yield slots.register({ name: 'contextMenu.icon', key: ICON_KEY }, Icon);
-				})), 'dsh-session-delete: menu icon');
+				})), `${dshSessionDeleteId}: menu icon`);
 				iconReady = true;
 			});
 
@@ -501,7 +514,7 @@ loadBundle({
 							}],
 						}));
 						if (typeof dispose === 'function') claimed = true;
-					}, 'dsh-session-delete: session menu action');
+					}, `${dshSessionDeleteId}: session menu action`);
 				});
 			}
 
@@ -510,10 +523,10 @@ loadBundle({
 					if (!ctx.slots || typeof ctx.slots.inject !== 'function') return;
 					runEffect(ctx, () => ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
 						name: 'sidebar.workspaces.session.menu.item',
-						id: 'dsh-session-delete.delete',
+						id: `${dshSessionDeleteId}.delete`,
 						order: 500,
 						locale: NS,
-					}, LegacyMenuItem)), 'dsh-session-delete: legacy session menu item');
+					}, LegacyMenuItem)), `${dshSessionDeleteId}: legacy session menu item`);
 					legacy = true;
 				});
 			}
