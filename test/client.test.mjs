@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Browser-half smoke test: load the bundle exactly as the client module system
  * does (`window.__ModuleLoader__.load({id, factory})`), then drive `apply()`
  * against stub contexts. Catches syntax errors, wiring mistakes, and 闁?most
@@ -126,10 +126,20 @@ function makeContext({ withMenus = true, overrides = {} } = {}) {
     },
   };
   // Slot contributions are always available; the menu service is optional.
+  // A Slot factory may be a plain callback or a generator, exactly as the Host
+  // accepts both shapes; generator bodies only run while iterated.
   ctx.slots = {
     inject: (name, fn) => {
       registrations.push(['inject', name]);
-      return fn();
+      const produced = fn();
+      if (typeof produced !== 'function' && produced !== null && typeof produced === 'object' && typeof produced[Symbol.iterator] === 'function') {
+        const disposers = [];
+        for (const item of produced) if (typeof item === 'function') disposers.push(item);
+        return () => {
+          for (const dispose of disposers) dispose();
+        };
+      }
+      return typeof produced === 'function' ? produced : () => {};
     },
     register: (config, component) => {
       registrations.push(['slot', config, component]);
@@ -186,7 +196,10 @@ test('apply prefers contextMenus and puts Delete after archive', async () => {
   assert.equal(items.length, 1);
   assert.equal(typeof items[0].run, 'function');
   assert.equal(items[0].separatorBefore, true);
-  assert.equal(items[0].label, 'menu.delete');
+  // The stub's locale face answers with the key itself, which is what a Host
+  // whose locale service cannot see this namespace does; the row must still show
+  // real copy instead of `menu.delete`.
+  assert.equal(items[0].label, '删除会话…');
   assert.equal(items[0].danger, true, 'the row is styled as destructive');
   assert.equal(items[0].afterContent, true, 'the row joins the footer group with Archive');
   assert.equal(items[0].icon && items[0].icon.key, 'session-delete.delete', 'the row carries a glyph key');
@@ -256,6 +269,73 @@ test('a broken menu service falls through to the legacy Slot', async () => {
   };
   assert.doesNotThrow(() => exports.apply(ctx));
   assert.ok(registrations.some(([kind]) => kind === 'slot'), 'the Slot fallback took over');
+});
+
+test('a locale service that answers with real copy wins over the bundled dictionary', async () => {
+  const entry = await loadBundle();
+  const exports = entry.factory(requireStub);
+  const { ctx, registrations } = makeContext({
+    withMenus: true,
+    overrides: {
+      locale: {
+        register: () => () => {},
+        bind: () => (key) => (key === 'menu.delete' ? 'Delete session…' : key),
+        resolveText: (map) => map.en,
+      },
+    },
+  });
+  exports.apply(ctx);
+
+  const config = registrations.find(([kind]) => kind === 'menu')[1];
+  assert.equal(config.resolve({ sessionId: 'session-x' })[0].label, 'Delete session…');
+});
+
+test('the row keeps a glyph when the shared primitives ship no trash icon', async () => {
+  const entry = await loadBundle();
+  const exports = entry.factory((id) => {
+    if (id === 'react') return reactStub;
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return {};
+    throw new Error(`unexpected require: ${id}`);
+  });
+  const { ctx, registrations } = makeContext({ withMenus: true });
+  assert.doesNotThrow(() => exports.apply(ctx));
+
+  const glyph = registrations.find(([kind, cfg]) => kind === 'slot' && cfg && cfg.key === 'session-delete.delete');
+  assert.ok(glyph, 'a glyph component was registered into contextMenu.icon');
+  assert.equal(typeof glyph[2], 'function');
+  assert.equal(glyph[2]().type, 'svg', 'the bundled SVG stands in for the shared icon');
+});
+
+test('a service returning its own Disposable never loses the registration', async () => {
+  const entry = await loadBundle();
+  const exports = entry.factory(requireStub);
+  const { ctx, registrations } = makeContext({ withMenus: true });
+  // The Host's services answer with Disposable objects, and its effect runner
+  // rejects anything but a bare function — the shape that silently dropped both
+  // the dictionaries and the glyph before.
+  ctx.effect = (fn) => {
+    const produced = fn();
+    if (produced !== null && produced !== undefined && typeof produced !== 'function') {
+      throw new TypeError('Invalid effect');
+    }
+    return () => {};
+  };
+  ctx.locale.register = () => ({ dispose() {} });
+  ctx.locale.bind = () => (key) => key;
+  ctx.slots.inject = (name, factory) => {
+    registrations.push(['inject', name]);
+    const produced = factory();
+    for (const item of produced) if (item !== null && typeof item === 'object') registrations.push(['slot-disposable', item]);
+    return { dispose() {} };
+  };
+  exports.apply(ctx);
+
+  const config = registrations.find(([kind]) => kind === 'menu')[1];
+  assert.equal(config.resolve({ sessionId: 'session-x' })[0].label, '删除会话…', 'copy survived');
+  assert.ok(
+    registrations.some(([kind]) => kind === 'inject'),
+    'the glyph factory still ran',
+  );
 });
 
 test('both locale dictionaries cover the same keys', async () => {

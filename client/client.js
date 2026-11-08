@@ -65,12 +65,56 @@ window.__ModuleLoader__.load({
 			},
 		};
 
-		/** Stand-in translator used until `ctx.locale` hands over the real one. */
-		let translate = (key, vars) => {
-			const language = String((typeof navigator !== 'undefined' && navigator.language) || 'en').toLowerCase();
-			const dict = language.startsWith('zh') ? MESSAGES.zh : MESSAGES.en;
-			const text = dict[key] ?? MESSAGES.en[key] ?? key;
+		/** Fill one dictionary string's `{placeholder}` slots. */
+		function fill(text, vars) {
 			return vars === undefined ? text : String(text).replace(/\{(\w+)\}/g, (_, k) => (vars[k] === undefined ? '' : String(vars[k])));
+		}
+
+		/** Locale face handed over by `apply`; `resolveText` follows the GUI language. */
+		let localeFace = null;
+
+		/** Look one key up in the dictionaries compiled into this bundle. */
+		function localTranslate(key, vars) {
+			let text;
+			if (localeFace !== null && typeof localeFace.resolveText === 'function') {
+				try {
+					const map = {};
+					for (const locale of Object.keys(MESSAGES)) map[locale] = MESSAGES[locale][key];
+					const resolved = localeFace.resolveText(map);
+					if (typeof resolved === 'string' && resolved !== '') text = resolved;
+				} catch {
+					// Fall through to the browser language below.
+				}
+			}
+			if (text === undefined) {
+				const language = String((typeof navigator !== 'undefined' && navigator.language) || 'en').toLowerCase();
+				const dict = language.startsWith('zh') ? MESSAGES.zh : MESSAGES.en;
+				text = dict[key] ?? MESSAGES.en[key] ?? key;
+			}
+			return fill(text, vars);
+		}
+
+		/**
+		 * Owner of every string this plugin shows.
+		 *
+		 * `ctx.locale.bind(ns)` is consulted first so the row follows a GUI
+		 * language switch. A Host whose locale service cannot see this namespace
+		 * (registered late, disposed by a remount, served by a different locale
+		 * instance) answers with the key itself, and a menu that reads
+		 * `menu.delete` is never acceptable — so a key-shaped answer falls back to
+		 * the dictionaries compiled into this module.
+		 */
+		let serviceTranslate = null;
+		let translate = (key, vars) => {
+			if (serviceTranslate !== null) {
+				try {
+					const served = serviceTranslate(key, vars);
+					if (typeof served === 'string' && served !== key) return served;
+				} catch {
+					// A broken locale face must not blank the copy.
+				}
+			}
+			return localTranslate(key, vars);
 		};
 
 		// ── styles ───────────────────────────────────────────────────────────
@@ -246,6 +290,71 @@ window.__ModuleLoader__.load({
 		/** Slot key for the glyph this plugin contributes to `contextMenu.icon`. */
 		const ICON_KEY = 'session-delete.delete';
 
+		/**
+		 * Express a service's returned cleanup as the bare function Cordis
+		 * accepts as an effect result.
+		 *
+		 * Cordis rejects anything that is neither a function, a thenable, nor an
+		 * iterable (`TypeError: Invalid effect`), and Slot/menu services return
+		 * their own Disposable objects. Returning one of those from an effect body
+		 * would drop the whole registration, which is exactly how a glyph can go
+		 * missing while the row still appears.
+		 * @param produced - whatever the service returned.
+		 * @returns a disposer, or undefined when the value carries no cleanup.
+		 */
+		function toCleanup(produced) {
+			if (typeof produced === 'function') return produced;
+			if (produced === null || produced === undefined) return undefined;
+			if (typeof produced.dispose === 'function') return () => produced.dispose();
+			if (typeof produced.abort === 'function') return () => produced.abort();
+			if (typeof produced[Symbol.dispose] === 'function') return () => produced[Symbol.dispose]();
+			return undefined;
+		}
+
+		/**
+		 * Run one wiring body and hand its cleanup to the context.
+		 *
+		 * The body always runs exactly once, even on a Host whose `ctx.effect`
+		 * refuses the service's own return shape: the registration must not
+		 * depend on how a service spells "dispose me".
+		 * @param ctx - client context.
+		 * @param body - wiring to run; may return a disposer or a Disposable.
+		 * @param label - effect label for the Host's diagnostics.
+		 * @returns whatever `body` returned.
+		 */
+		function runEffect(ctx, body, label) {
+			const produced = body();
+			const cleanup = toCleanup(produced);
+			if (cleanup === undefined || typeof ctx.effect !== 'function') return produced;
+			try {
+				ctx.effect(() => cleanup, label);
+			} catch {
+				// Cleanup bookkeeping is best effort; the registration already happened.
+			}
+			return produced;
+		}
+
+		/**
+		 * Self-contained trash glyph.
+		 *
+		 * Used when the shared primitives module does not expose
+		 * `IconTrashOutlineRegular`: an icon-less row next to the shipped rows is a
+		 * visible regression, and a 16px inline SVG costs nothing.
+		 */
+		function TrashGlyph() {
+			return React.createElement('svg', {
+				viewBox: '0 0 20 20',
+				width: 16,
+				height: 16,
+				fill: 'none',
+				stroke: 'currentColor',
+				strokeWidth: 1.6,
+				strokeLinecap: 'round',
+				strokeLinejoin: 'round',
+				'aria-hidden': true,
+			}, React.createElement('path', { d: 'M4.5 6.5h11' }), React.createElement('path', { d: 'M8 6.5V5.2h4v1.3' }), React.createElement('path', { d: 'M6.2 6.5l.6 8.3h6.4l.6-8.3' }), React.createElement('path', { d: 'M8.6 9.2v3.4M11.4 9.2v3.4' }));
+		}
+
 		/** Run one wiring step; a failure is reported, never fatal. */
 		function step(label, run) {
 			try {
@@ -269,37 +378,55 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			connection = step('connection', () => (ctx.connection !== undefined ? ctx.connection : ctx.get ? ctx.get('connection') : null)) || null;
 
-			step('locale-register', () => {
-				if (ctx.locale && typeof ctx.locale.register === 'function') {
-					ctx.effect(() => safe('locale-register', () => ctx.locale.register(NS, MESSAGES)), 'dsh-session-delete: dictionaries');
-				}
-			});
+			// ── locale ───────────────────────────────────────────────────────
+			// The dictionary registration and the bind are separate steps on
+			// purpose: a Host that refuses the namespace still gets correct copy
+			// from the bundled dictionaries, so neither failure blanks the row.
+			const localeService = step('locale', () => (ctx.locale === undefined ? null : ctx.locale)) || null;
+			localeFace = localeService;
+			let dictionaries = 'absent';
+			if (localeService !== null && typeof localeService.register === 'function') {
+				let registered;
+				step('locale-register', () => {
+					runEffect(ctx, () => {
+						registered = safe('locale-register', () => localeService.register(NS, MESSAGES));
+						return registered;
+					}, 'dsh-session-delete: dictionaries');
+				});
+				dictionaries = typeof registered === 'function' ? 'registered' : 'failed';
+			}
 			step('locale-bind', () => {
-				if (ctx.locale && typeof ctx.locale.bind === 'function') {
-					const bound = safe('locale-bind', () => ctx.locale.bind(NS));
-					if (typeof bound === 'function') translate = (key, vars) => bound(key, vars);
-				}
+				if (localeService === null || typeof localeService.bind !== 'function') return;
+				const bound = safe('locale-bind', () => localeService.bind(NS));
+				if (typeof bound === 'function') serviceTranslate = bound;
 			});
 
-			// Glyph for the menu row: the menu service renders whatever component
-			// this slot key resolves to, exactly as the shipped actions do.
+			// ── glyph ────────────────────────────────────────────────────────
+			// The menu service renders whatever component this slot key resolves
+			// to, exactly as the shipped actions do. The shared primitives icon is
+			// preferred; a bundled SVG keeps the row from losing its glyph when
+			// that module is not reachable from this bundle.
+			let glyph = 'none';
 			let iconReady = false;
 			step('icon', () => {
-				const Icon = P.IconTrashOutlineRegular;
-				if (Icon === undefined || Icon === null) return;
-				if (!ctx.slots || typeof ctx.slots.inject !== 'function') return;
-				ctx.effect(() => safe('icon-register', () => ctx.slots.inject('contextMenu.icon', () => ctx.slots.register({
-					name: 'contextMenu.icon',
-					key: ICON_KEY,
-				}, Icon))), 'dsh-session-delete: menu icon');
+				const slots = ctx.slots;
+				if (slots === undefined || slots === null || typeof slots.inject !== 'function') return;
+				let Icon = P.IconTrashOutlineRegular;
+				glyph = Icon === undefined || Icon === null ? 'bundled-svg' : 'primitives';
+				if (Icon === undefined || Icon === null) Icon = TrashGlyph;
+				runEffect(ctx, () => safe('icon-register', () => slots.inject('contextMenu.icon', function* () {
+					yield slots.register({ name: 'contextMenu.icon', key: ICON_KEY }, Icon);
+				})), 'dsh-session-delete: menu icon');
 				iconReady = true;
 			});
 
-			const menus = step('menus', () => ctx.contextMenus);
-			if (menus !== undefined && menus !== null && typeof menus.register === 'function') {
-				let claimed = false;
+			// ── menu row ─────────────────────────────────────────────────────
+			let claimed = false;
+			let legacy = false;
+			const menus = step('menus', () => (ctx.contextMenus === undefined ? null : ctx.contextMenus)) || null;
+			if (menus !== null && typeof menus.register === 'function') {
 				step('menu-register', () => {
-					ctx.effect(() => {
+					runEffect(ctx, () => {
 						const dispose = safe('menu-register', () => menus.register({
 							id: 'session.delete',
 							target: 'session',
@@ -318,17 +445,40 @@ window.__ModuleLoader__.load({
 						if (typeof dispose === 'function') claimed = true;
 					}, 'dsh-session-delete: session menu action');
 				});
-				if (claimed) return;
 			}
 
-			step('legacy-slot', () => {
-				if (!ctx.slots || typeof ctx.slots.inject !== 'function') return;
-				ctx.effect(() => ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
-					name: 'sidebar.workspaces.session.menu.item',
-					id: 'dsh-session-delete.delete',
-					order: 500,
-					locale: NS,
-				}, LegacyMenuItem)), 'dsh-session-delete: legacy session menu item');
+			if (!claimed) {
+				step('legacy-slot', () => {
+					if (!ctx.slots || typeof ctx.slots.inject !== 'function') return;
+					runEffect(ctx, () => ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
+						name: 'sidebar.workspaces.session.menu.item',
+						id: 'dsh-session-delete.delete',
+						order: 500,
+						locale: NS,
+					}, LegacyMenuItem)), 'dsh-session-delete: legacy session menu item');
+					legacy = true;
+				});
+			}
+
+			// ── self-check ───────────────────────────────────────────────────
+			// The browser has no log a person can read, so a broken wiring (raw
+			// key, missing glyph, no menu row) is reported once where the Host's
+			// owner can find it. A healthy activation writes nothing.
+			step('self-check', () => {
+				const copy = translate('menu.delete');
+				if (copy !== 'menu.delete' && glyph !== 'none' && (claimed || legacy)) return;
+				void call('report', {
+					label: 'diagnose',
+					detail: JSON.stringify({
+						copy,
+						glyph,
+						icon: iconReady,
+						menu: claimed,
+						legacy: legacy === true,
+						dictionaries,
+						bound: serviceTranslate !== null,
+					}),
+				}).catch(() => {});
 			});
 		}
 
